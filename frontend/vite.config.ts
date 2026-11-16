@@ -6,6 +6,8 @@ export default defineConfig({
   appType: 'spa',
   plugins: [react(), tailwindcss()],
   server: {
+    // スマホから ngrok 経由でアクセスするため、NGROK_DOMAIN（ホスト名のみ）を許可する。
+    allowedHosts: process.env.NGROK_DOMAIN ? [process.env.NGROK_DOMAIN] : [],
     proxy: {
       '/api': {
         target: 'http://backend:8000',
