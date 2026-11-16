@@ -14,6 +14,7 @@ const validAccount = {
   lastFetchedAt: null,
   lastFetchError: '',
   postCount: 0,
+  tabIds: [1, 2],
 }
 
 describe('accountsDto', () => {
@@ -28,6 +29,7 @@ describe('accountsDto', () => {
   it('rejects malformed accounts', () => {
     expect(() => parseAccountList([{ ...validAccount, id: '1' }])).toThrow(DtoError)
     expect(() => parseAccountList({ results: [] })).toThrow(DtoError)
+    expect(() => parseAccountList([{ ...validAccount, tabIds: ['1'] }])).toThrow(DtoError)
   })
 
   // テストケース: 未知の status を含む取得結果を検証する

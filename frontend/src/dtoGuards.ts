@@ -61,3 +61,12 @@ export function readBoolean(record: Record<string, unknown>, key: string): boole
   }
   return value
 }
+
+export function readNumberArray(record: Record<string, unknown>, key: string): number[] {
+  return asArray(record[key], key).map((item) => {
+    if (typeof item !== 'number' || !Number.isFinite(item)) {
+      throw new DtoError(`${key} に数値以外が含まれています`)
+    }
+    return item
+  })
+}
