@@ -2,8 +2,11 @@ import { useState } from 'react'
 import type { FormEvent } from 'react'
 import type { Account } from './accountsDto'
 import { formatFollowers, formatRelativeTime } from './formatters'
+import type { Tab } from './tabsDto'
 
 type Props = {
+  tab: Tab
+  tabs: Tab[]
   accounts: Account[]
   error: string
   selectedAccountId: number | null
@@ -13,7 +16,7 @@ type Props = {
   onCreate: (username: string, memo: string) => Promise<void>
   onToggleActive: (account: Account) => Promise<void>
   onUpdateMemo: (account: Account, memo: string) => Promise<void>
-  onDelete: (account: Account) => Promise<void>
+  onRemove: (account: Account) => Promise<void>
   onFetch: (account: Account) => void
 }
 
@@ -50,8 +53,11 @@ export default function AccountsPanel(props: Props) {
     <section aria-labelledby="accounts-heading" className="rounded-xl border border-line bg-panel">
       <div className="border-b border-line p-4">
         <h2 id="accounts-heading" className="font-bold">
-          アカウント（{props.accounts.length}）
+          「{props.tab.name}」のアカウント（{props.accounts.length}）
         </h2>
+        <p className="mt-1 text-xs text-muted">
+          他のタブに登録済みのアカウントも、このタブに追加できます。
+        </p>
         <form onSubmit={(event) => void handleSubmit(event)} className="mt-3 space-y-2">
           <label className="block text-sm">
             <span className="text-muted">ユーザー名 / プロフィール URL</span>
@@ -109,24 +115,23 @@ export default function AccountsPanel(props: Props) {
           <AccountRow
             key={account.id}
             account={account}
+            otherTabNames={props.tabs
+              .filter((tab) => tab.id !== props.tab.id && account.tabIds.includes(tab.id))
+              .map((tab) => tab.name)}
             selected={props.selectedAccountId === account.id}
             fetchingThis={props.fetchingAccountId === account.id}
             fetching={props.fetching}
             onSelect={() => props.onSelect(account.id)}
             onToggleActive={() => void props.onToggleActive(account)}
             onUpdateMemo={(value) => props.onUpdateMemo(account, value)}
-            onDelete={() => {
-              if (window.confirm(`@${account.username} と取得済みの投稿を削除しますか？`)) {
-                void props.onDelete(account)
-              }
-            }}
+            onRemove={() => props.onRemove(account)}
             onFetch={() => props.onFetch(account)}
           />
         ))}
       </ul>
       {props.accounts.length === 0 && (
         <p className="p-4 text-sm text-muted">
-          まだアカウントがありません。気になるアカウントを登録してください。
+          このタブにはまだアカウントがありません。気になるアカウントを登録してください。
         </p>
       )}
     </section>
@@ -135,13 +140,14 @@ export default function AccountsPanel(props: Props) {
 
 type RowProps = {
   account: Account
+  otherTabNames: string[]
   selected: boolean
   fetchingThis: boolean
   fetching: boolean
   onSelect: () => void
   onToggleActive: () => void
   onUpdateMemo: (memo: string) => Promise<void>
-  onDelete: () => void
+  onRemove: () => Promise<void>
   onFetch: () => void
 }
 
@@ -149,6 +155,22 @@ function AccountRow({ account, ...props }: RowProps) {
   const [editing, setEditing] = useState(false)
   const [memoDraft, setMemoDraft] = useState(account.memo)
   const [memoError, setMemoError] = useState('')
+  // window.confirm はアプリ内ブラウザなどで無効化されていることがあるため、行内で確認する。
+  const [confirmingRemove, setConfirmingRemove] = useState(false)
+  const [removing, setRemoving] = useState(false)
+  const [removeError, setRemoveError] = useState('')
+  const keepsInOtherTabs = props.otherTabNames.length > 0
+
+  const remove = async () => {
+    setRemoving(true)
+    setRemoveError('')
+    try {
+      await props.onRemove()
+    } catch (error) {
+      setRemoveError(errorMessage(error))
+      setRemoving(false)
+    }
+  }
 
   const saveMemo = async () => {
     try {
@@ -185,6 +207,11 @@ function AccountRow({ account, ...props }: RowProps) {
               : '・未取得'}
             {!account.isActive && '・停止中'}
           </p>
+          {keepsInOtherTabs && (
+            <p className="mt-1 text-xs text-muted">
+              {props.otherTabNames.map((name) => `「${name}」`).join('')}にも登録
+            </p>
+          )}
           {account.lastFetchError && (
             <p className="mt-1 text-xs break-words text-danger">⚠ {account.lastFetchError}</p>
           )}
@@ -257,10 +284,47 @@ function AccountRow({ account, ...props }: RowProps) {
             >
               Instagram
             </a>
-            <button type="button" onClick={props.onDelete} className="text-danger hover:underline">
-              削除
-            </button>
+            {!confirmingRemove && (
+              <button
+                type="button"
+                onClick={() => {
+                  setRemoveError('')
+                  setConfirmingRemove(true)
+                }}
+                className="text-danger hover:underline"
+              >
+                削除
+              </button>
+            )}
           </div>
+          {confirmingRemove && (
+            <div role="alert" className="mt-2 rounded-md bg-danger-soft p-2 text-xs text-danger">
+              <p className="break-words">
+                {keepsInOtherTabs
+                  ? `@${account.username} をこのタブから外しますか？（他のタブには残ります）`
+                  : `@${account.username} と取得済みの投稿を削除しますか？`}
+              </p>
+              <div className="mt-2 flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => void remove()}
+                  disabled={removing}
+                  className="rounded bg-danger px-2 py-1 font-semibold text-white disabled:opacity-60"
+                >
+                  {removing ? '処理中…' : keepsInOtherTabs ? '外す' : '削除する'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirmingRemove(false)}
+                  disabled={removing}
+                  className="rounded px-2 py-1 text-muted hover:underline"
+                >
+                  取消
+                </button>
+              </div>
+              {removeError && <p className="mt-1">{removeError}</p>}
+            </div>
+          )}
         </div>
       </div>
     </li>

@@ -74,16 +74,20 @@ def fetch_active_accounts(
     force: bool,
     media_limit: int,
     min_interval: timedelta,
+    tab_id: int | None = None,
     now: datetime | None = None,
 ) -> list[FetchResult]:
-    """有効なアカウントをまとめて取得する。
+    """有効なアカウントをまとめて取得する。tab_id を指定するとそのタブのアカウントだけを取得する。
 
     force=False（起動時の自動取得）では、前回取得から min_interval 以内のアカウントを
     スキップして API の呼び出し上限を節約する。
     """
     now = now or timezone.now()
+    accounts = TrackedAccount.objects.filter(is_active=True)
+    if tab_id is not None:
+        accounts = accounts.filter(tabs=tab_id)
     results: list[FetchResult] = []
-    for account in TrackedAccount.objects.filter(is_active=True).order_by("username"):
+    for account in accounts.order_by("username"):
         recently_fetched = (
             account.last_fetched_at is not None and now - account.last_fetched_at < min_interval
         )

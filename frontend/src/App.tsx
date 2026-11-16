@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
 import {
   createAccount,
-  deleteAccount,
   fetchAccountPosts,
   fetchAllAccounts,
   listAccounts,
@@ -17,13 +16,37 @@ import { listPosts } from './postsApi'
 import type { Post } from './postsDto'
 import { getStatus } from './statusApi'
 import type { AppStatus } from './statusApi'
+import TabBar from './TabBar'
+import { createTab, deleteTab, listTabs, removeAccountFromTab, renameTab } from './tabsApi'
+import type { Tab } from './tabsDto'
+
+const SELECTED_TAB_STORAGE_KEY = 'insta-curator:selectedTabId'
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : '予期しないエラーが発生しました。'
 }
 
+function loadStoredTabId(): number | null {
+  try {
+    const stored = Number(window.localStorage.getItem(SELECTED_TAB_STORAGE_KEY))
+    return Number.isInteger(stored) && stored > 0 ? stored : null
+  } catch {
+    return null
+  }
+}
+
+function storeTabId(tabId: number): void {
+  try {
+    window.localStorage.setItem(SELECTED_TAB_STORAGE_KEY, String(tabId))
+  } catch {
+    // 保存できなくても、次回は先頭のタブを開くだけなので無視する。
+  }
+}
+
 export default function App() {
   const [status, setStatus] = useState<AppStatus | null>(null)
+  const [tabs, setTabs] = useState<Tab[]>([])
+  const [selectedTabId, setSelectedTabId] = useState<number | null>(null)
   const [accounts, setAccounts] = useState<Account[]>([])
   const [accountsError, setAccountsError] = useState('')
   const [posts, setPosts] = useState<Post[]>([])
@@ -34,28 +57,60 @@ export default function App() {
   const [fetchState, dispatchFetch] = useReducer(fetchReducer, initialFetchState)
   const fetchRunningRef = useRef(false)
   const startedRef = useRef(false)
+  // 非同期処理の完了時点で表示中のタブを参照するため、state とは別に保持する。
+  const selectedTabRef = useRef<number | null>(null)
 
-  const reloadAccounts = useCallback(async () => {
+  const reloadTabs = useCallback(async () => {
     try {
-      setAccounts(await listAccounts())
-      setAccountsError('')
+      setTabs(await listTabs())
     } catch (error) {
       setAccountsError(errorMessage(error))
     }
   }, [])
 
+  const reloadAccounts = useCallback(async () => {
+    const tabId = selectedTabRef.current
+    if (tabId === null) {
+      return
+    }
+    try {
+      const loaded = await listAccounts(tabId)
+      // 読み込み中に別のタブへ切り替えた場合は、古いタブの結果を捨てる。
+      if (selectedTabRef.current === tabId) {
+        setAccounts(loaded)
+        setAccountsError('')
+      }
+    } catch (error) {
+      if (selectedTabRef.current === tabId) {
+        setAccountsError(errorMessage(error))
+      }
+    }
+  }, [])
+
+  const selectTab = useCallback((tabId: number) => {
+    if (selectedTabRef.current === tabId) {
+      return
+    }
+    selectedTabRef.current = tabId
+    storeTabId(tabId)
+    setSelectedTabId(tabId)
+    setSelectedAccountId(null)
+    setAccounts([])
+    setPosts([])
+  }, [])
+
   const runFetch = useCallback(
-    async (trigger: FetchTrigger, accountId?: number) => {
+    async (trigger: FetchTrigger, target: { accountId?: number; tabId?: number } = {}) => {
       if (fetchRunningRef.current) {
         return
       }
       fetchRunningRef.current = true
-      dispatchFetch({ type: 'start', trigger, accountId })
+      dispatchFetch({ type: 'start', trigger, accountId: target.accountId })
       try {
         const results =
-          accountId === undefined
-            ? await fetchAllAccounts(trigger === 'manual')
-            : await fetchAccountPosts(accountId)
+          target.accountId === undefined
+            ? await fetchAllAccounts(trigger === 'manual', target.tabId)
+            : await fetchAccountPosts(target.accountId)
         dispatchFetch({ type: 'succeed', results })
       } catch (error) {
         dispatchFetch({ type: 'fail', message: errorMessage(error) })
@@ -68,7 +123,7 @@ export default function App() {
     [reloadAccounts],
   )
 
-  // 起動時: 状態とアカウントを読み込み、自動取得（最近取得済みはスキップ）を1回だけ行う。
+  // 起動時: 状態とタブを読み込み、全タブの自動取得（最近取得済みはスキップ）を1回だけ行う。
   useEffect(() => {
     if (startedRef.current) {
       return
@@ -80,15 +135,33 @@ export default function App() {
       } catch (error) {
         setAccountsError(errorMessage(error))
       }
-      await reloadAccounts()
+      try {
+        const loadedTabs = await listTabs()
+        setTabs(loadedTabs)
+        const storedTabId = loadStoredTabId()
+        const initialTab = loadedTabs.find((tab) => tab.id === storedTabId) ?? loadedTabs[0] ?? null
+        if (initialTab) {
+          selectTab(initialTab.id)
+        }
+      } catch (error) {
+        setAccountsError(errorMessage(error))
+      }
       await runFetch('startup')
+      await reloadTabs()
     })()
-  }, [reloadAccounts, runFetch])
+  }, [reloadTabs, runFetch, selectTab])
 
   useEffect(() => {
+    void reloadAccounts()
+  }, [selectedTabId, reloadAccounts])
+
+  useEffect(() => {
+    if (selectedTabId === null) {
+      return
+    }
     const controller = new AbortController()
     setPostsLoading(true)
-    listPosts(selectedAccountId, controller.signal)
+    listPosts(selectedTabId, selectedAccountId, controller.signal)
       .then((loaded) => {
         setPosts(loaded)
         setPostsError('')
@@ -104,12 +177,20 @@ export default function App() {
         }
       })
     return () => controller.abort()
-  }, [selectedAccountId, postsVersion])
+  }, [selectedTabId, selectedAccountId, postsVersion])
 
   const handleCreate = async (username: string, memo: string) => {
-    const created = await createAccount(username, memo)
-    await reloadAccounts()
-    await runFetch('account', created.id)
+    if (selectedTabId === null) {
+      return
+    }
+    const account = await createAccount(username, memo, selectedTabId)
+    await Promise.all([reloadAccounts(), reloadTabs()])
+    if (account.lastFetchedAt === null) {
+      await runFetch('account', { accountId: account.id })
+    } else {
+      // 他のタブで取得済みのアカウントは、手動取得せず保存済みの投稿を表示する（API 上限の節約）。
+      setPostsVersion((version) => version + 1)
+    }
   }
 
   const handleToggleActive = async (account: Account) => {
@@ -127,18 +208,40 @@ export default function App() {
     await reloadAccounts()
   }
 
-  const handleDelete = async (account: Account) => {
-    try {
-      await deleteAccount(account.id)
-      if (selectedAccountId === account.id) {
-        setSelectedAccountId(null)
-      }
-      await reloadAccounts()
-      setPostsVersion((version) => version + 1)
-    } catch (error) {
-      setAccountsError(errorMessage(error))
+  const handleRemove = async (account: Account) => {
+    if (selectedTabId === null) {
+      return
+    }
+    await removeAccountFromTab(selectedTabId, account.id)
+    if (selectedAccountId === account.id) {
+      setSelectedAccountId(null)
+    }
+    await Promise.all([reloadAccounts(), reloadTabs()])
+    setPostsVersion((version) => version + 1)
+  }
+
+  const handleCreateTab = async (name: string) => {
+    const created = await createTab(name)
+    await reloadTabs()
+    selectTab(created.id)
+  }
+
+  const handleRenameTab = async (tab: Tab, name: string) => {
+    await renameTab(tab.id, name)
+    await reloadTabs()
+  }
+
+  const handleDeleteTab = async (tab: Tab) => {
+    await deleteTab(tab.id)
+    const remaining = await listTabs()
+    setTabs(remaining)
+    const next = remaining[0]
+    if (next) {
+      selectTab(next.id)
     }
   }
+
+  const selectedTab = tabs.find((tab) => tab.id === selectedTabId) ?? null
 
   const fetching = fetchState.phase === 'running'
   const fetchMessage = describeFetchState(fetchState)
@@ -154,14 +257,24 @@ export default function App() {
           </div>
           <button
             type="button"
-            onClick={() => void runFetch('manual')}
-            disabled={fetching}
+            onClick={() => void runFetch('manual', { tabId: selectedTabId ?? undefined })}
+            disabled={fetching || selectedTabId === null}
+            title="表示中のタブのアカウントを取得します"
             className="rounded-full bg-accent px-4 py-2 text-sm font-semibold text-white hover:bg-accent-strong focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {fetching ? '取得中…' : 'すべて更新'}
+            {fetching ? '取得中…' : selectedTab ? `「${selectedTab.name}」を更新` : 'すべて更新'}
           </button>
         </div>
       </header>
+
+      <TabBar
+        tabs={tabs}
+        selectedTabId={selectedTabId}
+        onSelect={selectTab}
+        onCreate={handleCreateTab}
+        onRename={handleRenameTab}
+        onDelete={handleDeleteTab}
+      />
 
       {status?.mode === 'fake' && (
         <div className="border-b border-line bg-accent-soft">
@@ -191,19 +304,23 @@ export default function App() {
               ))}
             </ul>
           )}
-          <AccountsPanel
-            accounts={accounts}
-            error={accountsError}
-            selectedAccountId={selectedAccountId}
-            fetchingAccountId={fetchState.phase === 'running' ? fetchState.accountId : null}
-            fetching={fetching}
-            onSelect={setSelectedAccountId}
-            onCreate={handleCreate}
-            onToggleActive={handleToggleActive}
-            onUpdateMemo={handleUpdateMemo}
-            onDelete={handleDelete}
-            onFetch={(account) => void runFetch('account', account.id)}
-          />
+          {selectedTab && (
+            <AccountsPanel
+              tab={selectedTab}
+              tabs={tabs}
+              accounts={accounts}
+              error={accountsError}
+              selectedAccountId={selectedAccountId}
+              fetchingAccountId={fetchState.phase === 'running' ? fetchState.accountId : null}
+              fetching={fetching}
+              onSelect={setSelectedAccountId}
+              onCreate={handleCreate}
+              onToggleActive={handleToggleActive}
+              onUpdateMemo={handleUpdateMemo}
+              onRemove={handleRemove}
+              onFetch={(account) => void runFetch('account', { accountId: account.id })}
+            />
+          )}
         </div>
 
         <PostFeed

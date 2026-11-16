@@ -6,6 +6,7 @@ import {
   readNullableNumber,
   readNullableString,
   readNumber,
+  readNumberArray,
   readString,
 } from './dtoGuards'
 
@@ -21,6 +22,7 @@ export type Account = {
   lastFetchedAt: string | null
   lastFetchError: string
   postCount: number
+  tabIds: number[]
 }
 
 export type FetchStatus = 'ok' | 'skipped' | 'error'
@@ -47,6 +49,7 @@ export function parseAccount(value: unknown): Account {
     lastFetchedAt: readNullableString(record, 'lastFetchedAt'),
     lastFetchError: readString(record, 'lastFetchError'),
     postCount: readNumber(record, 'postCount'),
+    tabIds: readNumberArray(record, 'tabIds'),
   }
 }
 

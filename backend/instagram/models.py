@@ -1,12 +1,27 @@
 from django.db import models
 
 
+class Tab(models.Model):
+    """投稿を見るジャンルのタブ（ご飯・ファッションなど）。アカウントは複数のタブに所属できる。"""
+
+    name = models.CharField(max_length=30, unique=True)
+    position = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["position", "id"]
+
+    def __str__(self) -> str:
+        return self.name
+
+
 class TrackedAccount(models.Model):
     """情報を取得する対象の Instagram アカウント（ビジネス／クリエイターアカウント）。"""
 
     username = models.CharField(max_length=30, unique=True)
     memo = models.CharField(max_length=200, blank=True)
     is_active = models.BooleanField(default=True)
+    tabs = models.ManyToManyField(Tab, related_name="accounts", blank=True)
 
     # 取得時に Instagram から反映するプロフィール情報
     display_name = models.CharField(max_length=200, blank=True)
