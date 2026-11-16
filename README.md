@@ -33,6 +33,15 @@ docker compose up --build
 - 画面: http://localhost:5180
 - API: http://localhost:8080/api/health
 
+### スマホから使う（ngrok）
+
+ngrok の開発用ドメイン経由で、スマホから HTTPS でアクセスできます。
+
+1. `.env` に `NGROK_AUTHTOKEN` と `NGROK_DOMAIN`（スキームなしのホスト名）を設定する
+2. `docker compose --profile mobile up -d` で起動し、スマホで `https://${NGROK_DOMAIN}` を開く
+
+**認証なしで公開されます。** URL を知っている人は誰でも操作できるため、URL を共有せず、使い終わったら `docker compose stop ngrok` でトンネルを止めてください。`--profile mobile` を付けないときは、ngrok は起動しません。同じドメインは同時に1つのトンネルでしか使えないため、ほかのアプリで同じドメインを使うときは、先にこちらを止めてください。
+
 `IG_USER_ID` と `IG_ACCESS_TOKEN` が空のときは **デモモード**（ダミー投稿）で動きます。`missing` で始まるユーザー名を登録すると、「見つからない」エラーの表示を確認できます。
 
 ## Instagram API の準備（実データを取る場合）
