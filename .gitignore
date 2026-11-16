@@ -1,0 +1,12 @@
+.env
+.DS_Store
+
+# backend
+__pycache__/
+*.pyc
+.ruff_cache/
+
+# frontend
+node_modules/
+dist/
+*.tsbuildinfo
