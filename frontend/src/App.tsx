@@ -4,6 +4,7 @@ import {
   fetchAccountPosts,
   fetchAllAccounts,
   listAccounts,
+  lookupAccount,
   updateAccount,
 } from './accountsApi'
 import type { Account } from './accountsDto'
@@ -179,6 +180,13 @@ export default function App() {
     return () => controller.abort()
   }, [selectedTabId, selectedAccountId, postsVersion])
 
+  const handleLookup = async (username: string) => {
+    if (selectedTabId === null) {
+      throw new Error('タブを選択してください。')
+    }
+    return lookupAccount(username, selectedTabId)
+  }
+
   const handleCreate = async (username: string, memo: string) => {
     if (selectedTabId === null) {
       return
@@ -186,7 +194,8 @@ export default function App() {
     const account = await createAccount(username, memo, selectedTabId)
     await Promise.all([reloadAccounts(), reloadTabs()])
     if (account.lastFetchedAt === null) {
-      await runFetch('account', { accountId: account.id })
+      // 取得の進み具合はステータス欄に出るため、確認ダイアログは取得の完了を待たずに閉じる。
+      void runFetch('account', { accountId: account.id })
     } else {
       // 他のタブで取得済みのアカウントは、手動取得せず保存済みの投稿を表示する（API 上限の節約）。
       setPostsVersion((version) => version + 1)
@@ -314,6 +323,7 @@ export default function App() {
               fetchingAccountId={fetchState.phase === 'running' ? fetchState.accountId : null}
               fetching={fetching}
               onSelect={setSelectedAccountId}
+              onLookup={handleLookup}
               onCreate={handleCreate}
               onToggleActive={handleToggleActive}
               onUpdateMemo={handleUpdateMemo}
