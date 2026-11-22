@@ -25,13 +25,19 @@ def lookup_account(username: str, tab: Tab, gateway: InstagramGateway) -> Accoun
     """登録前にアカウントを確認する。DB には書き込まない。
 
     登録済みのアカウントは、API の呼び出し上限を節約するため DB に保存済みの情報を返す。
+    ただし一度も取得に成功していないアカウント（確認機能より前に誤って登録された行など）は、
+    保存済みの情報が当てにならないため API で確認する。
     """
     account = TrackedAccount.objects.filter(username=username).first()
-    if account is not None:
-        in_this_tab = account.tabs.filter(pk=tab.pk).exists()
-        return AccountLookup(_saved_profile(account), "this_tab" if in_this_tab else "other_tab")
-    profile = gateway.fetch_profile(username, LOOKUP_MEDIA_LIMIT)
-    return AccountLookup(profile, "none")
+    if account is None:
+        return AccountLookup(gateway.fetch_profile(username, LOOKUP_MEDIA_LIMIT), "none")
+
+    registration: Registration = (
+        "this_tab" if account.tabs.filter(pk=tab.pk).exists() else "other_tab"
+    )
+    if account.last_fetched_at is None:
+        return AccountLookup(gateway.fetch_profile(username, LOOKUP_MEDIA_LIMIT), registration)
+    return AccountLookup(_saved_profile(account), registration)
 
 
 def _saved_profile(account: TrackedAccount) -> FetchedProfile:

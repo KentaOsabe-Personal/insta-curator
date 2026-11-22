@@ -113,11 +113,11 @@ export default function AccountConfirmDialog({ lookup, tabName, onRegister, onCl
         )}
         {lookup.registration === 'other_tab' && (
           <p className="rounded-md bg-accent-soft p-2 text-sm">
-            別のタブに登録済みです。このタブにも追加できます（投稿は共有されます）。
+            別のタブに登録済みです。このタブにも追加できます。投稿とメモはすべてのタブで共有され、メモは登録後に「メモ編集」で変更できます。
           </p>
         )}
 
-        {!registeredHere && (
+        {lookup.registration === 'none' && (
           <label className="block text-sm">
             <span className="text-muted">メモ（任意）</span>
             <input

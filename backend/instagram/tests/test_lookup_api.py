@@ -68,7 +68,11 @@ class AccountLookupApiTests(APITestCase):
     def test_lookup_account_in_other_tab_uses_saved_data_without_api(self):
         date = Tab.objects.create(name="デート", position=1)
         account = TrackedAccount.objects.create(
-            username="bistro", display_name="ビストロ公式", followers_count=500, media_count=40
+            username="bistro",
+            display_name="ビストロ公式",
+            followers_count=500,
+            media_count=40,
+            last_fetched_at=datetime(2026, 11, 5, tzinfo=UTC),
         )
         account.tabs.add(date)
         base = datetime(2026, 11, 1, tzinfo=UTC)
@@ -88,6 +92,19 @@ class AccountLookupApiTests(APITestCase):
         self.assertEqual(response.data["mediaCount"], 40)
         self.assertEqual([post["mediaId"] for post in response.data["posts"]], ["m3", "m2", "m1"])
         self.assertEqual(TrackedAccount.objects.get().tabs.count(), 1)
+
+    # テストケース: 確認機能より前に「デート」タブへ登録され、一度も取得に成功していないアカウントを確認する
+    # 期待値: 保存済みの情報を使わずに Instagram API で確認し、見つからなければ 404 not_found を返す
+    def test_lookup_never_fetched_account_in_other_tab_checks_api(self):
+        date = Tab.objects.create(name="デート", position=1)
+        TrackedAccount.objects.create(
+            username="missing_old", last_fetch_error="@missing_old が見つかりません。"
+        ).tabs.add(date)
+
+        response = self._lookup("missing_old", self.food.id)
+
+        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.data["kind"], "not_found")
 
     # テストケース: 「ご飯」タブに登録済みのアカウントを「ご飯」タブで確認する
     # 期待値: 登録状況 this_tab を返す（画面で登録ボタンを無効にするため）
