@@ -9,16 +9,18 @@ from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .gateway import build_gateway
+from .gateway import AccountNotFoundError, InstagramGatewayError, build_gateway
 from .models import Post, Tab, TrackedAccount
 from .serializers import (
     AccountCreateSerializer,
+    AccountLookupQuerySerializer,
     PostSerializer,
     TabSerializer,
     TrackedAccountSerializer,
+    serialize_account_lookup,
     serialize_fetch_result,
 )
-from .services import fetch_account, fetch_active_accounts
+from .services import fetch_account, fetch_active_accounts, lookup_account
 
 _MAX_POST_LIMIT = 200
 
@@ -146,6 +148,28 @@ class AccountListCreateView(generics.ListAPIView):
         return Response(
             output.data, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK
         )
+
+
+class AccountLookupView(APIView):
+    """登録前にアカウントを確認する。DB には書き込まない。"""
+
+    def get(self, request: Request) -> Response:
+        query = AccountLookupQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        try:
+            lookup = lookup_account(
+                query.validated_data["username"], query.validated_data["tabId"], build_gateway()
+            )
+        except AccountNotFoundError as error:
+            # Business Discovery は「存在しない」と「個人アカウント」を同じエラーで返すため区別しない。
+            return Response(
+                {"detail": error.message, "kind": "not_found"}, status=status.HTTP_404_NOT_FOUND
+            )
+        except InstagramGatewayError as error:
+            return Response(
+                {"detail": error.message, "kind": "api_error"}, status=status.HTTP_502_BAD_GATEWAY
+            )
+        return Response(serialize_account_lookup(lookup))
 
 
 class AccountDetailView(generics.RetrieveUpdateDestroyAPIView):

@@ -5,10 +5,56 @@ from typing import Literal
 from django.db import transaction
 from django.utils import timezone
 
-from .gateway import InstagramGateway, InstagramGatewayError
-from .models import Post, TrackedAccount
+from .gateway import FetchedMedia, FetchedProfile, InstagramGateway, InstagramGatewayError
+from .models import Post, Tab, TrackedAccount
 
 FetchStatus = Literal["ok", "skipped", "error"]
+Registration = Literal["this_tab", "other_tab", "none"]
+
+# 登録前の確認で見せる最新投稿の件数
+LOOKUP_MEDIA_LIMIT = 3
+
+
+@dataclass(frozen=True)
+class AccountLookup:
+    profile: FetchedProfile
+    registration: Registration
+
+
+def lookup_account(username: str, tab: Tab, gateway: InstagramGateway) -> AccountLookup:
+    """登録前にアカウントを確認する。DB には書き込まない。
+
+    登録済みのアカウントは、API の呼び出し上限を節約するため DB に保存済みの情報を返す。
+    """
+    account = TrackedAccount.objects.filter(username=username).first()
+    if account is not None:
+        in_this_tab = account.tabs.filter(pk=tab.pk).exists()
+        return AccountLookup(_saved_profile(account), "this_tab" if in_this_tab else "other_tab")
+    profile = gateway.fetch_profile(username, LOOKUP_MEDIA_LIMIT)
+    return AccountLookup(profile, "none")
+
+
+def _saved_profile(account: TrackedAccount) -> FetchedProfile:
+    posts = account.posts.order_by("-posted_at")[:LOOKUP_MEDIA_LIMIT]
+    return FetchedProfile(
+        username=account.username,
+        display_name=account.display_name,
+        profile_picture_url=account.profile_picture_url,
+        followers_count=account.followers_count,
+        media_count=account.media_count,
+        media=tuple(
+            FetchedMedia(
+                media_id=post.media_id,
+                caption=post.caption,
+                permalink=post.permalink,
+                media_type=post.media_type,
+                media_url=post.media_url,
+                thumbnail_url=post.thumbnail_url,
+                posted_at=post.posted_at,
+            )
+            for post in posts
+        ),
+    )
 
 
 @dataclass(frozen=True)

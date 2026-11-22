@@ -53,6 +53,58 @@ export function parseAccount(value: unknown): Account {
   }
 }
 
+/** 登録前の確認で分かる登録状況。表示中のタブに登録済み / 別のタブに登録済み / 未登録。 */
+export type LookupRegistration = 'this_tab' | 'other_tab' | 'none'
+
+export type LookupPost = {
+  mediaId: string
+  permalink: string
+  mediaType: string
+  mediaUrl: string
+  thumbnailUrl: string
+  postedAt: string
+}
+
+export type AccountLookup = {
+  username: string
+  displayName: string
+  profilePictureUrl: string
+  followersCount: number | null
+  mediaCount: number | null
+  posts: LookupPost[]
+  registration: LookupRegistration
+}
+
+function parseRegistration(value: string): LookupRegistration {
+  if (value === 'this_tab' || value === 'other_tab' || value === 'none') {
+    return value
+  }
+  throw new DtoError(`registration が不明な値です: ${value}`)
+}
+
+export function parseAccountLookup(value: unknown): AccountLookup {
+  const record = asRecord(value, 'lookup')
+  return {
+    username: readString(record, 'username'),
+    displayName: readString(record, 'displayName'),
+    profilePictureUrl: readString(record, 'profilePictureUrl'),
+    followersCount: readNullableNumber(record, 'followersCount'),
+    mediaCount: readNullableNumber(record, 'mediaCount'),
+    posts: asArray(record.posts, 'posts').map((item) => {
+      const post = asRecord(item, 'post')
+      return {
+        mediaId: readString(post, 'mediaId'),
+        permalink: readString(post, 'permalink'),
+        mediaType: readString(post, 'mediaType'),
+        mediaUrl: readString(post, 'mediaUrl'),
+        thumbnailUrl: readString(post, 'thumbnailUrl'),
+        postedAt: readString(post, 'postedAt'),
+      }
+    }),
+    registration: parseRegistration(readString(record, 'registration')),
+  }
+}
+
 export function parseAccountList(value: unknown): Account[] {
   return asArray(value, 'accounts').map(parseAccount)
 }

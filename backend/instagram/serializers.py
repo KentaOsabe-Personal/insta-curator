@@ -1,7 +1,7 @@
 from rest_framework import serializers
 
 from .models import Post, Tab, TrackedAccount
-from .services import FetchResult
+from .services import AccountLookup, FetchResult
 from .usernames import InvalidUsernameError, normalize_username
 
 
@@ -57,11 +57,10 @@ class TrackedAccountSerializer(serializers.ModelSerializer):
         return username
 
 
-class AccountCreateSerializer(serializers.Serializer):
-    """タブへのアカウント登録の入力。既存アカウントならそのタブへの追加として扱う。"""
+class AccountLookupQuerySerializer(serializers.Serializer):
+    """登録前の確認の入力。ユーザー名は登録時と同じく正規化する。"""
 
     username = serializers.CharField(max_length=300)
-    memo = serializers.CharField(max_length=200, required=False, allow_blank=True, default="")
     tabId = serializers.PrimaryKeyRelatedField(
         queryset=Tab.objects.all(),
         error_messages={"does_not_exist": "タブが見つかりません。"},
@@ -72,6 +71,12 @@ class AccountCreateSerializer(serializers.Serializer):
             return normalize_username(value)
         except InvalidUsernameError as error:
             raise serializers.ValidationError(str(error)) from None
+
+
+class AccountCreateSerializer(AccountLookupQuerySerializer):
+    """タブへのアカウント登録の入力。既存アカウントならそのタブへの追加として扱う。"""
+
+    memo = serializers.CharField(max_length=200, required=False, allow_blank=True, default="")
 
 
 class TabSerializer(serializers.ModelSerializer):
@@ -122,6 +127,29 @@ class PostSerializer(serializers.ModelSerializer):
             "thumbnailUrl",
             "postedAt",
         ]
+
+
+def serialize_account_lookup(lookup: AccountLookup) -> dict:
+    profile = lookup.profile
+    return {
+        "username": profile.username,
+        "displayName": profile.display_name,
+        "profilePictureUrl": profile.profile_picture_url,
+        "followersCount": profile.followers_count,
+        "mediaCount": profile.media_count,
+        "posts": [
+            {
+                "mediaId": media.media_id,
+                "permalink": media.permalink,
+                "mediaType": media.media_type,
+                "mediaUrl": media.media_url,
+                "thumbnailUrl": media.thumbnail_url,
+                "postedAt": media.posted_at.isoformat(),
+            }
+            for media in profile.media
+        ],
+        "registration": lookup.registration,
+    }
 
 
 def serialize_fetch_result(result: FetchResult) -> dict:

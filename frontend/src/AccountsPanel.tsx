@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import type { FormEvent } from 'react'
-import type { Account } from './accountsDto'
+import AccountConfirmDialog from './AccountConfirmDialog'
+import type { Account, AccountLookup } from './accountsDto'
+import Avatar from './Avatar'
 import { formatFollowers, formatRelativeTime } from './formatters'
 import type { Tab } from './tabsDto'
 
@@ -13,6 +15,7 @@ type Props = {
   fetchingAccountId: number | null
   fetching: boolean
   onSelect: (accountId: number | null) => void
+  onLookup: (username: string) => Promise<AccountLookup>
   onCreate: (username: string, memo: string) => Promise<void>
   onToggleActive: (account: Account) => Promise<void>
   onUpdateMemo: (account: Account, memo: string) => Promise<void>
@@ -26,9 +29,9 @@ function errorMessage(error: unknown): string {
 
 export default function AccountsPanel(props: Props) {
   const [username, setUsername] = useState('')
-  const [memo, setMemo] = useState('')
-  const [submitting, setSubmitting] = useState(false)
+  const [lookingUp, setLookingUp] = useState(false)
   const [formError, setFormError] = useState('')
+  const [lookup, setLookup] = useState<AccountLookup | null>(null)
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -36,17 +39,22 @@ export default function AccountsPanel(props: Props) {
       setFormError('ユーザー名を入力してください。')
       return
     }
-    setSubmitting(true)
+    setLookingUp(true)
     setFormError('')
     try {
-      await props.onCreate(username, memo)
-      setUsername('')
-      setMemo('')
+      setLookup(await props.onLookup(username))
     } catch (error) {
+      // 確認できないアカウントは、ダイアログを開かずに入力欄の下へエラーを表示する。
       setFormError(errorMessage(error))
     } finally {
-      setSubmitting(false)
+      setLookingUp(false)
     }
+  }
+
+  const handleRegister = async (confirmed: AccountLookup, memo: string) => {
+    await props.onCreate(confirmed.username, memo)
+    setLookup(null)
+    setUsername('')
   }
 
   return (
@@ -69,29 +77,27 @@ export default function AccountsPanel(props: Props) {
               className="mt-1 w-full rounded-md border border-line px-3 py-2 focus-visible:outline-2 focus-visible:outline-accent"
             />
           </label>
-          <label className="block text-sm">
-            <span className="text-muted">メモ（任意）</span>
-            <input
-              value={memo}
-              onChange={(event) => setMemo(event.target.value)}
-              placeholder="ラーメン / 古着屋 など"
-              maxLength={200}
-              className="mt-1 w-full rounded-md border border-line px-3 py-2 focus-visible:outline-2 focus-visible:outline-accent"
-            />
-          </label>
           {formError && (
-            <p role="alert" className="text-sm text-danger">
+            <p role="alert" className="text-sm break-words text-danger">
               {formError}
             </p>
           )}
           <button
             type="submit"
-            disabled={submitting}
+            disabled={lookingUp}
             className="w-full rounded-md border border-accent px-3 py-2 text-sm font-semibold text-accent hover:bg-accent-soft focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-60"
           >
-            {submitting ? '登録中…' : '登録して取得'}
+            {lookingUp ? '確認中…' : '確認'}
           </button>
         </form>
+        {lookup && (
+          <AccountConfirmDialog
+            lookup={lookup}
+            tabName={props.tab.name}
+            onRegister={(memo) => handleRegister(lookup, memo)}
+            onClose={() => setLookup(null)}
+          />
+        )}
       </div>
 
       {props.error && (
@@ -185,7 +191,7 @@ function AccountRow({ account, ...props }: RowProps) {
   return (
     <li className={`px-4 py-3 ${account.isActive ? '' : 'opacity-60'}`}>
       <div className="flex items-start gap-3">
-        <Avatar account={account} />
+        <Avatar username={account.username} profilePictureUrl={account.profilePictureUrl} />
         <div className="min-w-0 flex-1">
           <button
             type="button"
@@ -328,26 +334,5 @@ function AccountRow({ account, ...props }: RowProps) {
         </div>
       </div>
     </li>
-  )
-}
-
-function Avatar({ account }: { account: Account }) {
-  if (account.profilePictureUrl) {
-    return (
-      <img
-        src={account.profilePictureUrl}
-        alt=""
-        referrerPolicy="no-referrer"
-        className="size-10 shrink-0 rounded-full border border-line object-cover"
-      />
-    )
-  }
-  return (
-    <div
-      aria-hidden="true"
-      className="grid size-10 shrink-0 place-items-center rounded-full bg-accent-soft font-bold text-accent"
-    >
-      {account.username.charAt(0).toUpperCase()}
-    </div>
   )
 }

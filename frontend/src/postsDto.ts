@@ -33,7 +33,9 @@ export function parsePosts(value: unknown): Post[] {
 }
 
 /** 一覧に表示する画像。動画はサムネイルを優先し、取得できない場合は空文字。 */
-export function previewImageUrl(post: Post): string {
+export function previewImageUrl(
+  post: Pick<Post, 'mediaType' | 'mediaUrl' | 'thumbnailUrl'>,
+): string {
   if (post.mediaType === 'VIDEO') {
     return post.thumbnailUrl || ''
   }
